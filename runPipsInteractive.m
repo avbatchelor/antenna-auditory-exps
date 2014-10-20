@@ -1,10 +1,11 @@
 function meta = runPipsInteractive(pipType,logSessionData,experimentName)
-%function runPipsInteractive(pipType[='a'],pipHz[=1])
+%function meta = runPipsInteractive(pipType[='a'],logSessionData[=0],experimentName[=''])
 %% runPipsInteractive.m
 % 
 % run an "interactive" session of pips for hunting while doing ephys
 %
 % NOTE: pips should be longer than 100ms to ensure data can be gaplessly queued (see NotifyWhenScansQueuedBelow below)
+% TODO: change the acquisition and generation stages to use something closer to rig-specific objects
 %
 % SLH 2014
 
@@ -18,22 +19,19 @@ elseif ~ischar(pipType)
 end
 if ~exist('logSessionData','var')
     logSessionData = 0;
-elseif logSessionData == 1
-    daqSaveDir = 'C:\temp_daq\'
-    if ~exist(daqSaveDir,'dir')
-        mkdir(daqSaveDir)
-    end
 end
 if ~exist('experimentName','var')
     experimentName = 'default';
 end
-
+daqSaveDir = 'C:\temp_daq\';
+if ~exist(daqSaveDir,'dir')
+    mkdir(daqSaveDir)
+end
 %--------------------------------------------------------------------------
 %% Set up pip object
 %--------------------------------------------------------------------------
 params = selectPip(pipType);
 stim = PipStimulus(params);
-
 %--------------------------------------------------------------------------
 %% Metadata
 %--------------------------------------------------------------------------
@@ -57,7 +55,7 @@ end
 %% Configure daq
 %--------------------------------------------------------------------------
 fprintf('****\n**** Initializing DAQ\n****\n')
-try daqreset; catch; end
+close all force; daqreset;
 
 niOut = daq.createSession('ni');
 % devID found with daq.GetDevices or NI's MAX software
@@ -70,16 +68,13 @@ aO = niOut.addAnalogOutputChannel(devID,[1],'Voltage');
 aO(1).Name = 'pre-amplified auditory stim 1';
 
 % Set when the daq should request more data with DataRequired listener
-useManualNotify = 0;
+useManualNotify = 1;
 if useManualNotify
     % 100ms seems to be the minimum time to queue up a new stimulus
-    aO.NotifyWhenScansQueuedBelow = niIn.Rate*.1;
-else
-    aO.IsNotifyWhenScansQueuedBelowAuto = true
+    niOut.NotifyWhenScansQueuedBelow = niOut.Rate*.1;
 end
-
 % Add a listener for DataRequired that queues more data to the daq
-niOut.addlistener('DataRequired',@(src,event)src.queueMoreData(stim.stimulus));
+niOut.addlistener('DataRequired',@(src,event)passData(src,event,stim));
 
 % Digital Channels / names for documentation
 dO = niOut.addDigitalChannel(devID,{'Port0/Line4'},'OutputOnly');
@@ -104,7 +99,7 @@ if logSessionData
     aI(5).Name = 'axopatch 200b mode';
     aI(6).Name = 'axopatch 200b gain';
 
-    dI = niIn.addDigitalChannel(devID,{'Port0/Line7'},'Bidirectional');
+    dI = niIn.addDigitalChannel(devID,{'Port0/Line7'},'InputOnly');
     dI(1).Name = 'pip stim alignment'; 
 end
 
@@ -118,7 +113,7 @@ if logSessionData
 end
 
 % add initial data to the daq queue
-niOut.queueOutputData(stim.stimulus);
+niOut.queueOutputData([stim.stimulus stim.alignment]);
  
 niOut.startBackground()
 fprintf('****\n**** Started Delivery\n****\n')
@@ -131,8 +126,10 @@ while continueExp
             continueExp = 0;
         elseif sum([lower(userInput) ~= 'q']) > 0
             % change stim
-            stim = selectPip(lower(userInput));
-        end 
+            selectPip(lower(userInput),stim);
+            stim.generateStim();
+            meta.pipHistory = [meta.pipHistory stim];
+        end
     end
 end 
 
@@ -141,39 +138,46 @@ if logSessionData
     niIn.stop;
     [~] = fclose(logFileID);
     fprintf('****\n**** Stopped Acquisition\n****\n')
-    fprintf(['daqSaveDir:  ' meta.daqSaveDir '\n'])
-    fprintf(['daqSaveFile: ' meta.daqSaveFile '\n'])
+    fprintf(['daqSaveFile: ' meta.daqSaveFile ' \n'])
 end
 niOut.stop;
 
 %--------------------------------------------------------------------------
 %% Helper functions
 %--------------------------------------------------------------------------
-function pipParams = selectPip(pt)
+function obj = selectPip(pt,obj)
     switch pt
         case {'a'}
             % normal hunting pip
-            pipParams.modulationDepth  = 1;
-            pipParams.modulationFreqHz = 1;
-            pipParams.carrierFreqHz    = 150;
-            pipParams.dutyCycle        = .15;
-            pipParams.envelope         = 'sinusoid';
+            obj.stimulusDur      = 1;
+            obj.modulationDepth  = 1;
+            obj.modulationFreqHz = 2;
+            obj.carrierFreqHz    = 150;
+            obj.dutyCycle        = .1;
+            obj.envelope         = 'sinusoid';
         case {'b'}
             % faster hunting pip
-            pipParams.modulationDepth  = 1;
-            pipParams.modulationFreqHz = 3;
-            pipParams.carrierFreqHz    = 150;
-            pipParams.dutyCycle        = .1;
-            pipParams.envelope         = 'sinusoid';
+            obj.stimulusDur      = 1;
+            obj.modulationDepth  = 1;
+            obj.modulationFreqHz = 5;
+            obj.carrierFreqHz    = 150;
+            obj.dutyCycle        = .1;
+            obj.envelope         = 'sinusoid';
         case {'z'}
             % testing, temp
-            pipParams.modulationDepth  = 1;
-            pipParams.modulationFreqHz = 5;
-            pipParams.carrierFreqHz    = 300;
-            pipParams.dutyCycle        = .4;
-            pipParams.envelope         = 'triangle';
+            obj.stimulusDur      = 1;
+            obj.modulationDepth  = 1;
+            obj.modulationFreqHz = 5;
+            obj.carrierFreqHz    = 300;
+            obj.dutyCycle        = .2;
+            obj.envelope         = 'triangle';
          otherwise
             warning(['pipType ' pt ' not accounted for using default'])
-            pipParams = selectPip('a');
+            obj = selectPip('a');
     end
+end
+
+function passData(src,~,obj)
+    src.queueOutputData([obj.stimulus obj.alignment]);
+end
 end
