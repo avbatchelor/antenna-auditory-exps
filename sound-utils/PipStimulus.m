@@ -28,7 +28,11 @@ classdef PipStimulus < AuditoryStimulus
                 obj.setPipParameters(params);
             end
             obj.generateStim();
-            obj.makeAlignmentData();
+            obj.makeAlignmentOutput();
+
+            if obj.debug
+                obj.plot
+            end
         end
 
 %%------Pip Making Utilities---------------------------------------------------------
@@ -55,25 +59,21 @@ classdef PipStimulus < AuditoryStimulus
 
         function obj = generateStim(obj)
             % Use carrier frequency if wanted
-            if ~empty(obj.carrierFreqHz) || obj.carrierFreqHz ~= 0
+            if ~isempty(obj.carrierFreqHz) || obj.carrierFreqHz ~= 0
                 obj.stimulus = obj.makeSine(obj.carrierFreqHz);
             else
                 obj.stimulus = obj.makeStatic();
             end
 
             % Apply duty cycle (or pass back if not wanted)
-            pulseBounds = obj.addDutyCycle();
+            [~,pulseBounds] = obj.applyDutyCycle();
 
             % Apply an amplitude modulation (or pass back if not wanted)
-            obj.amplitudeModulate(pulseBounds)
+            obj.ampModulate(pulseBounds)
 
             % Scale the stimulus to the maximum voltage in the amp
             obj.stimulus = obj.stimulus*obj.maxVoltage; 
 
-            % Plot
-            if obj.debug
-                obj.plot
-            end
         end
 
         function [obj,pulseBounds] = applyDutyCycle(obj)
@@ -84,46 +84,52 @@ classdef PipStimulus < AuditoryStimulus
             else
                 % Number of samples per modulation period, num modulations
                 sampsPerMod = ((1/obj.modulationFreqHz)*obj.sampleRate);
-                if ~mod(sampsPerMod,1)
+                if ~~mod(sampsPerMod,1)
                     warning('modulation period not evenly divisible')
                     sampsPerMod = round(sampsPerMod);
                 end
                 nMods = (obj.stimulusDur*obj.sampleRate)/sampsPerMod;
-                if ~mod(nMods,1)
+                if ~~mod(nMods,1)
                     warning('number modulations per stimulus not evenly divisible');
                     nMods = round(nMods);
                 end
                 pulseBounds = zeros(nMods,2);
                 for iMod = 1:nMods
-                    pulseBounds(iMod,:) = sampsPerMod + [(1-obj.dutyCycle)*sampsPerMod sampsPerMod];
+                    pulseBounds(iMod,:) = (iMod-1)*sampsPerMod + [(1-obj.dutyCycle)*sampsPerMod sampsPerMod];
                 end
             end
             % Zero inter pulse intervals to establish a duty cycle over stimulus duration
             dutyCycleBinary = zeros(length(obj.stimulus),1);
-            dutyCycleBinary(pulseBounds(:,1):pulseBounds(:,2)) = 1;
+            for iMod = 1:nMods
+                dutyCycleBinary(pulseBounds(iMod,1):pulseBounds(iMod,2)) = 1;
+            end
             obj.stimulus = obj.stimulus.*dutyCycleBinary;
         end
 
-        function obj = ampModulate(obj,bounds)
+        function obj = ampModulate(obj,pulseBounds)
             switch lower(obj.envelope)
                 case {'none',''}
                     % pass back unchanged
                     return
                 case {'sinusoid','sin'}
                     % make an envelope that fits the pulse duration
-                    modEnvelope = obj.modulationDepth*sin(pi*bounds(:,2)-bounds(:,1)+1);
+                    dur = pulseBounds(1,2)-pulseBounds(1,1);
+                    modEnvelope = obj.modulationDepth*sin(pi*[0:1/dur:(1-1/dur)])';
                 case {'triangle','tri'}
-                    modEnvelope = obj.modulationDepth*sawtooth(pi*bounds(:,2)-bounds(:,1)+1,.5);
-                case {'sawtooth','saw'}
-                    modEnvelope = obj.modulationDepth*sawtooth(pi*bounds(:,2)-bounds(:,1)+1,1);
-                case {'sawtooth-rev','revsaw'}
-                    modEnvelope = obj.modulationDepth*sawtooth(pi*bounds(:,2)-bounds(:,1)+1,-1);
+                    dur = pulseBounds(1,2)-pulseBounds(1,1);
+                    modEnvelope = obj.modulationDepth*sawtooth(2*pi*[.25:1/(2*dur):.75],.5)';
+                case {'rampup'}
+                    dur = pulseBounds(1,2)-pulseBounds(1,1);
+                    modEnvelope = obj.modulationDepth*sawtooth(2*pi*[.5:1/(2*dur):1])';
+                case {'rampdown'}
+                    dur = pulseBounds(1,2)-pulseBounds(1,1);
+                    modEnvelope = obj.modulationDepth*sawtooth(2*pi*[0:1/(2*dur):.5],0)';
                 otherwise
                     error(['Envelope ' obj.Envelope ' not accounted for.']);
             end
             % apply the envelope to all of the modulation bounds 
-            for iMod = 1:size(bounds,1)
-                obj.stimulus(bounds(iMod,1):bounds(iMod,2)) = modEnvelope.*obj.stimulus(bounds(iMod,1):bounds(iMod,2));
+            for iMod = 1:size(pulseBounds,1)
+                obj.stimulus(pulseBounds(iMod,1):pulseBounds(iMod,2)) = modEnvelope.*obj.stimulus(pulseBounds(iMod,1):pulseBounds(iMod,2));
             end
         end
     end

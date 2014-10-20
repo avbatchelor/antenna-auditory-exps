@@ -15,7 +15,7 @@ classdef AuditoryStimulus < handle
         defaultLineWidth = 2
 
         % Various subclass effects
-        debug = 1
+        debug = 0
     end
 
     properties
