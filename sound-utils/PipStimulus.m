@@ -69,11 +69,10 @@ classdef PipStimulus < AuditoryStimulus
             [~,pulseBounds] = obj.applyDutyCycle();
 
             % Apply an amplitude modulation (or pass back if not wanted)
-            obj.ampModulate(pulseBounds)
+            obj.ampModulate(pulseBounds);
 
             % Scale the stimulus to the maximum voltage in the amp
             obj.stimulus = obj.stimulus*obj.maxVoltage; 
-
         end
 
         function [obj,pulseBounds] = applyDutyCycle(obj)
