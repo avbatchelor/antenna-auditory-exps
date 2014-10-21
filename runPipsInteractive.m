@@ -8,6 +8,7 @@ function meta = runPipsInteractive(pipType,logSessionData,experimentName)
 % TODO: change the acquisition and generation stages to use something closer to rig-specific objects
 %
 % SLH 2014
+%#ok<*NBRAK>
 
 %--------------------------------------------------------------------------
 %% Deal with input
@@ -39,22 +40,26 @@ meta.fullDateTime = datestr(now,30);
 meta.pipHistory = stim;
 % save path info
 meta.logged = logSessionData; 
-meta.daqSaveDir = daqSaveDir;
+meta.daqSaveDir = baseDaqDir;
 if logSessionData
     if ~exist(baseDaqDir,'dir')
         mkdir(baseDaqDir)
     end
-    if ~exist(fullfile(daqSaveDir,experimentName))
-        mkdir(fullfile(daqSaveDir,experimentName))
+    if ~exist(fullfile(baseDaqDir,experimentName),'dir')
+        mkdir(fullfile(baseDaqDir,experimentName))
     end
-    daqSaveDir = fullfile(daqSaveDir,experimentName));
+    daqSaveDir = fullfile(baseDaqDir,experimentName);
     daqSaveFile = ['daq_raw_' experimentName '_' meta.fullDateTime];
 
+    metaSaveFile = ['meta_' experimentName '_' meta.fullDateTime];
+    
+    meta.metaSaveFile = metaSaveFile;
     meta.daqSaveDir = daqSaveDir;
     meta.daqSaveFile = daqSaveFile;
 else
     meta.daqSaveDir = '';
     meta.daqSaveFile = '';
+    meta.metaSaveFile = '';
 end
 
 %--------------------------------------------------------------------------
@@ -70,7 +75,7 @@ niOut.Rate = 20E3;
 niOut.IsContinuous = true;
 
 % Analog Channels / names for documentation
-aO = niOut.addAnalogOutputChannel(devID,[1],'Voltage');
+aO = niOut.addAnalogOutputChannel(devID,[1],'Voltage'); 
 aO(1).Name = 'pre-amplified auditory stim 1';
 
 % Set when the daq should request more data with DataRequired listener
@@ -142,6 +147,7 @@ end
 % Close daq objects
 niOut.stop;
 
+% Save logged data
 if logSessionData
     niIn.stop;
     [~] = fclose(logFileID);
@@ -149,12 +155,24 @@ if logSessionData
     fprintf('****\n**** Loading logged data\n****\n')
     nDaqChans = numel(aI) + numel(dI);
     % Load daq data from raw, uncompressed file
-    [data,count] = loadDaqLog(fullfile(daqSaveDir,[daqSaveFile '.dat']),nDaqChans);
+    [count,data] = loadDaqLog(fullfile(daqSaveDir,[daqSaveFile '.dat']),nDaqChans);
 
     % Write data to transparent filestructure
     writeDaqH5fs(fullfile(daqSaveDir,[daqSaveFile '.h5']),count,data,niIn.Rate,'single',...
         {niIn.Channels(:).ID},{niIn.Channels(:).Name});
     fprintf('****\n**** Saved data to .h5\n****\n')
+    
+    % Remove redundant log file
+    delete(fullfile(daqSaveDir,[daqSaveFile '.dat']));    
+
+    % Save metadata as simple flat json file (requires jsonlab)
+    if ~exist('savejson','file')
+        warning('savejson not found, using mat file')
+        save(fullfile(daqSaveDir,[metaSaveFile '.mat']),'meta','-v7.3');
+    else
+        [~] = savejson('',meta,fullfile(daqSaveDir,[metaSaveFile '.mat']));
+        fprintf('****\n**** Saved metadata to .json\n****\n')
+    end
 end
 
 %--------------------------------------------------------------------------
