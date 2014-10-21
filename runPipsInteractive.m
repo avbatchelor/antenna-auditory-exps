@@ -21,12 +21,10 @@ if ~exist('logSessionData','var')
     logSessionData = 0;
 end
 if ~exist('experimentName','var')
-    experimentName = 'default';
+    experimentName = 'default-interactive';
 end
-daqSaveDir = 'C:\temp_daq\';
-if ~exist(daqSaveDir,'dir')
-    mkdir(daqSaveDir)
-end
+baseDaqDir = 'C:\temp_daq\';
+
 %--------------------------------------------------------------------------
 %% Set up pip object
 %--------------------------------------------------------------------------
@@ -43,8 +41,16 @@ meta.pipHistory = stim;
 meta.logged = logSessionData; 
 meta.daqSaveDir = daqSaveDir;
 if logSessionData
+    if ~exist(baseDaqDir,'dir')
+        mkdir(baseDaqDir)
+    end
+    if ~exist(fullfile(daqSaveDir,experimentName))
+        mkdir(fullfile(daqSaveDir,experimentName))
+    end
+    daqSaveDir = fullfile(daqSaveDir,experimentName));
+    daqSaveFile = ['daq_raw_' experimentName '_' meta.fullDateTime];
+
     meta.daqSaveDir = daqSaveDir;
-    daqSaveFile = [experimentName '_' meta.fullDateTime];
     meta.daqSaveFile = daqSaveFile;
 else
     meta.daqSaveDir = '';
@@ -88,7 +94,7 @@ if logSessionData
     niIn.IsContinuous = true;
 
     % Use a logfile for acquisition
-    logFileID = fopen(fullfile(daqSaveDir,daqSaveFile),'w');
+    logFileID = fopen(fullfile(daqSaveDir,[daqSaveFile '.dat']),'w');
     niIn.addlistener('DataAvailable',@(src,evt)logDaqData(src,evt,logFileID));
 
     aI = niIn.addAnalogInputChannel(devID,[0 1 2 3 4 5],'Voltage');
@@ -142,9 +148,11 @@ if logSessionData
 
     fprintf('****\n**** Loading logged data\n****\n')
     nDaqChans = numel(aI) + numel(dI);
-    [data,count] = loadDaqLog(fullfile(daqSaveDir,daqSaveFile),nDaqChans);
+    % Load daq data from raw, uncompressed file
+    [data,count] = loadDaqLog(fullfile(daqSaveDir,[daqSaveFile '.dat']),nDaqChans);
 
-    writeDaqH5fs(fullfile(daqSaveDir,daqSaveFile),count,data,niIn.Rate,'single',...
+    % Write data to transparent filestructure
+    writeDaqH5fs(fullfile(daqSaveDir,[daqSaveFile '.h5']),count,data,niIn.Rate,'single',...
         {niIn.Channels(:).ID},{niIn.Channels(:).Name});
     fprintf('****\n**** Saved data to .h5\n****\n')
 end

@@ -8,7 +8,7 @@ function writeDaqH5fs(h5filepath,count,data,samplerate,precision,ids,names)
     end
 
     % Data / sampling parameters
-    h5create(h5filepath,'/daq/count/',size(count),'Datatype',precision);
+    h5create(h5filepath,'/daq/count/',size(count),'Datatype',precision,'Deflate',2);
     h5write(h5filepath,'/daq/count/',count);
     h5writeatt(h5filepath,'/daq','samplerate',samplerate,)
 
