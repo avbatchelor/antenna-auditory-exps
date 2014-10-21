@@ -134,13 +134,20 @@ while continueExp
 end 
 
 % Close daq objects
+niOut.stop;
+
 if logSessionData
     niIn.stop;
     [~] = fclose(logFileID);
-    fprintf('****\n**** Stopped Acquisition\n****\n')
-    fprintf(['daqSaveFile: ' meta.daqSaveFile ' \n'])
+
+    fprintf('****\n**** Loading logged data\n****\n')
+    nDaqChans = numel(aI) + numel(dI);
+    [data,count] = loadDaqLog(fullfile(daqSaveDir,daqSaveFile),nDaqChans);
+
+    writeDaqH5fs(fullfile(daqSaveDir,daqSaveFile),count,data,niIn.Rate,'single',...
+        {niIn.Channels(:).ID},{niIn.Channels(:).Name});
+    fprintf('****\n**** Saved data to .h5\n****\n')
 end
-niOut.stop;
 
 %--------------------------------------------------------------------------
 %% Helper functions
@@ -180,4 +187,5 @@ end
 function passData(src,~,obj)
     src.queueOutputData([obj.stimulus obj.alignment]);
 end
+
 end
